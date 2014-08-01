@@ -121,16 +121,16 @@ var numeric = _.filter(_.keys(dtypes), function(d) {
   return _.contains(['numeric', 'integer'], dtypes[d]) ;}),
 // reset to only look for two data types, numeric and factor
 // get factor variables in array
-factor = _.filter(_.keys(dtypes), function(d) { 
+factors = _.filter(_.keys(dtypes), function(d) { 
   return dtypes[d] == 'factor' || dtypes[d] == 'integer'}),
 dtypes =  _.zipObject(_.keys(dtypes), _.map(_.keys(dtypes), 
   function(d) { 
     return _.contains(['integer', 'numeric'], 
-                      dtypes[d]) ? 'numeric': 'factor'}))
+                      dtypes[d]) ? 'numeric': 'factor'})),
 // prepare crossfilter and set up some parameters
-color_var = factor[0],
-filter_var = factor[2],
-size_var = null,
+// color_var = factor[0],
+// filter_var = factor[2],
+// size_var = null,
 colors = d3.scale.category10();
 
 dat.forEach(function(d, i) {
@@ -148,9 +148,8 @@ data = crossfilter(dat);
 d3.select('#controls')
     .append('div')
     .attr('class', 'btn-group-vertical sc')
-// histograms
-function update_bars() {
 
+function update_bars() {
   if(d3.select("#barselect").empty()){
     var barselect = d3.select('.btn-group-vertical.sc')
                     .append('div')
@@ -160,7 +159,7 @@ function update_bars() {
                     .attr('multiple', 'multiple')
                     .attr('class', 'controls')
     barselect.selectAll('option')
-      .data(factor)
+      .data(factors)
       .enter().append('option')
       .attr('value', function(d) { return d; })
       .attr('selected', function(d, i) {
@@ -224,28 +223,24 @@ bar_width = 300;
 
 var bar_vals = _.map($("#barselect option:selected"),
                      function(d) { return d.value; })
-data  = data.dimension(function(d) { return d._index;})
+data = data.dimension(function(d) { return d._index;})
 bar_div.selectAll('div')
   .data(bar_vals)
   .enter().append('div')
-  .style('float', 'left')
-  .style('position', 'relative')
   .attr('id', function(d) { return d[0];})
   .each(function(d, i) {
     var t = d
     var bar = d3.stackbar()
                 .v1(d)
-                .height(300)
-                .barwidth(20)
-                .factors(factor)
+                .v2('beautym2upper')
+                .height(600)
+                .width(300)
+                .factors(factors)
                 .data(data)
                 .id(d)
+                .vertical(false)
     d3.select(this).call(bar);
   });
-
-// update_bars()
-
-
 
 });
 

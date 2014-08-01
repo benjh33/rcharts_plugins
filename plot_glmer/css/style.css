@@ -206,7 +206,9 @@ select.pred {
   font-weight:bold;
   background: none;
 }
-
+.btn-group-vertical div {
+  padding-bottom: 5px;
+}
 #controls .btn-group-vertical.sc div.hist, 
 #controls .btn-group-vertical.sc div.filter_group {
     padding-bottom: 0px;
@@ -218,4 +220,10 @@ select.pred {
 }
 .ui-slider .ui-slider-handle{
   height: 0.8em;
+}
+.stackbar-div {
+  position:relative;
+}
+.stackbar-div .btn-group-vertical {
+  float:left;
 }

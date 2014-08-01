@@ -2,11 +2,18 @@ d3.stackbar = function module() {
   // initialize variables that will be exposed
   var height = 600, 
       width = 300,
-      barwidth = 30,
+      barwidth = 0,
+      vertical = true,
+      show_stack = true,
+      show_expand = true,
+      show_sort = true,
+      show_sort_factors = true,
+      show_choose_factors = true,
+      expand = false,
       data,
       id,
       v1, 
-      color_scale = d3.scale.category10(),
+      color_scale = d3.scale.category20(),
       size_var,
       factors,
       v2,
@@ -41,16 +48,15 @@ d3.stackbar = function module() {
       
       // make group based on stackvar,
 
-      v2 = _.filter(factors, function(d) { return d != v1})[0]
+      v2 = v2 ? v2:_.filter(factors, function(d) { return d != v1})[0]
 
 
-      var expand = false;
       var stack_group = 'stacked',
       layers, GroupMax, StackMax, xes;
 
       function update_layers(){
         layers = d3.nest()
-                  .key(function(d) { return d[v2] ;}) // layers
+                  .key(function(d) { return d[v2] ;}) // layers/colors
                   .key(function(d) { return d[v1] ;}) // x axis variable
                   .rollup(function(d) {
                     return {
@@ -62,30 +68,59 @@ d3.stackbar = function module() {
                   .entries(data.top(Infinity)),
 
         // getting all possible x values
-        xes = _.unique(_.flatten(_.map(layers, 
-                            function(d) {
-                              return _.map(d.values, 
-                                           function(d) { return d.key;})}))),
-        missing_entries = _.zipObject(_.map(layers, function(d) { return d.key;}), _.map(_.range(layers.length), function(d) { return [];}))
+        xes = _.unique(
+                _.flatten(
+                  _.map(layers, 
+                    function(d) {
+                      return _.map(d.values, 
+                        function(d) { 
+                          return d.key;
+                        })
+                    })
+                  )
+                ),
+        missing_entries = _.zipObject(
+                            _.map(layers, 
+                              function(d) { 
+                                return d.key;
+                              }), 
+                            _.map(
+                              _.range(layers.length), 
+                              function(d) { 
+                                return [];
+                              })
+                            );
         _.map(layers, function(d) {
           _.map(d.values, function(x) { 
             missing_entries[d.key].push(x.key)
           })
           missing_entries[d.key] = _.difference(xes, missing_entries[d.key])
         })
-
+        ///////
+        ///////
+        // Support for missing values can certainly be improved on.
         _.mapValues(missing_entries, function(v, k) {
           _.map(layers, function(d, i, layers) {
             if(d.key == k){
               _.map(v, function(val) {
-                d.values.push({key:val, values:{x:val, v2:k, count:0, w:0}})
+                d.values.push({key:val, values:{x:+val, v2:k, count:0, w:0}})
               })
             }
           })
         })
-        _.forEach(layers, function(d, i, layers) { d.values = _.map(d.values, function(x) { return x.values;}) })
-        _.forEach(layers, function(d, i, layers) {
-          d.values = _.sortBy(d.values, function(x) { return x.x;})
+        _.forEach(layers, 
+          function(d, i) { 
+            d.values = _.map(d.values, 
+                             function(x) { 
+                              return x.values;
+                            }) 
+          })
+        _.forEach(layers, 
+          function(d, i) {
+            d.values = _.sortBy(d.values, 
+                                function(x) { 
+                                  return x.x;
+                                })
         })
 
         var stack = d3.layout.stack()
@@ -100,56 +135,76 @@ d3.stackbar = function module() {
         StackMax = d3.max(layers, function(layer) {
           return d3.max(layer.values, function(l) { return l.y + l.y0; });
         })
-      }
+      } // end update layers
+
       update_layers()
-
-      width;
-
-      if(barwidth * layers[0].values.length > width){
-        var size = {
-          "x": barwidth * layers[0].values.length,
-          "y": height - padding.top  - padding.bottom
+      if(vertical) {
+        if(barwidth * layers[0].values.length > width){
+          var size = {
+            "category": barwidth * layers[0].values.length,
+            "count": height - padding.top  - padding.bottom
+          }
+          width = barwidth * layers[0].values.length + padding.left + padding.right
+        } else {
+          var size = {
+            "category": width - padding.left - padding.right,
+            "count": height - padding.top  - padding.bottom
+          }
         }
-        width = barwidth * layers[0].values.length + padding.left + padding.right
       } else {
-        var size = {
-          "x": width - padding.left - padding.right,
-          "y": height - padding.top  - padding.bottom
+        if(barwidth * layers[0].values.length > height){
+          var size = {
+            "category": height - padding.top  - padding.bottom,
+            "count": barwidth * layers[0].values.length
+          }
+          height = barwidth * layers[0].values.length + 
+          padding.top + padding.bottom;
+        } else {
+          var size = {
+            "category": height - padding.top  - padding.bottom,
+            "count": width - padding.left - padding.right
+          }
         }
       }
-
 
       // scales
-      var x = d3.scale.ordinal()
-              .domain(_.sortBy(xes))
-              .rangeRoundBands([0, size.x], .08)
+      var scales = {};
+      scales.category = d3.scale.ordinal()
+              .domain(_.sortBy(_.map(xes,
+                      function(x) { return !_.isNaN(+x) ? +x : x;})))
+              .rangeRoundBands([0, size.category], .08)
 
-      var y = d3.scale.linear()
+      scales.count = d3.scale.linear()
           .domain(expand_extent([0, StackMax], 0.1, true, false))
-          .range([size.y, 0])
+          .range([size.count, 0])
 
-      var xAxis = d3.svg.axis()
-          .scale(x)
-          .tickSize(-size.y)
+      if(!vertical) {
+        scales.count.domain().reverse()
+      }
+
+      var catAxis = d3.svg.axis()
+          .scale(scales.category)
+          .tickSize(-size.count)
           .tickPadding(6)
-          .orient("bottom");
+          .orient(vertical ? "bottom": "left");
 
-      var yAxis = d3.svg.axis()
-          .scale(y)
-          .tickSize(-size.x)
+      var countAxis = d3.svg.axis()
+          .scale(scales.count)
+          .tickSize(-size.category)
           .tickFormat(d3.format(",.2s"))
           .tickPadding(6)
-          .orient("left");
+          .orient(vertical ? "left": "bottom");
 
       if(_selection.select('.frame').empty()){
 
-        var buttons = _selection.append('div')
+        var div = _selection.append('div')
+                        .attr('class', 'stackbar-div')
+
+        var buttons = div.append('div')
                   .attr('class', 'btn-group-vertical')
-                  .style('float', 'left')
                   .append('div')
                   .attr('id', 'buttons'),
         choose_factor = buttons.append('div')
-                        .style('padding-bottom', '5px')
                         .append('select')
                         .attr('id', 'factor_' + id)
                         .attr('class', 'btn')
@@ -163,114 +218,129 @@ d3.stackbar = function module() {
           })
         choose_factor.on('change', function(){
           v2 = this.value
+          make_sort_choices();
           draw_chart();
         })
         var choose_sort = buttons.append('div')
-                        .style('padding-bottom', '5px')
                         .append('select')
                         .attr('id', 'choose_sort_' + id)
                         .attr('class', 'btn')
 
-        choose_sort.selectAll('option')
-              .data([v1, v2])
-              .enter().append('option')
-              .attr('selected', function(d, i) {
-                return i == 0 ? "selected":null;})
-              .attr('value', _.identity)
-              .text(_.identity)
+        var make_sort_choices = function() {
+          var tmp = $("#choose_sort_" + id).value
+          choose_sort.selectAll('option').remove()
+          choose_sort.selectAll('option')
+                .data([v1, v2])
+                .enter().append('option')
+                .attr('selected', function(d, i) {
+                  return d == tmp ? "selected":null;})
+                .attr('value', _.identity)
+                .text(_.identity)
+        }
+        make_sort_choices();
+
         var sort_button = buttons.append('div')
-                        .style('padding-bottom', '5px')
                         .append('select')
                         .attr('id', 'sort_button_' + id)
-                        .style('padding-bottom', '5px')
                         .attr('class', 'btn')
+
         sort_button.call(make_sort_button, v1)
+
         var stack_button = buttons.append('div')
-                          .style('padding-bottom', '5px')
                           .append('select')
                           .attr('id', 'stack_group_' + id)
                         .attr('class', 'btn')
+
         stack_button.selectAll('option')
             .data(['stacked', 'grouped'])
             .enter().append('option')
             .text(_.identity)
             .attr('selected', function(d,i) { if(i==0) return "selected"})
             .attr('value', _.identity)
+
         stack_button.on('change', function() {
           stack_group = this.value;
           update_scales();
           draw_chart();
         })
+
         var expand_button = buttons.append('div')
-                          .style('padding-bottom', '5px')
                           .append('select')
                           .attr('id', 'expand_' + id)
                           .attr('class', 'btn')
+
         expand_button.selectAll('option')
             .data(['levels', 'expand'])
             .enter().append('option')
             .text(_.identity)
             .attr('selected', function(d,i) { if(i==0) return "selected"})
             .attr('value', _.identity)
+
         expand_button.on('change', function() {
           expand = this.value == 'expand' ? true: false;
           update_layers()
           update_scales()
           draw_chart()
         })
-        var svg = _selection.append('div')
+
+        var svg = div.append('div')
             .attr('id', id)
-            .style('position', 'relative')
-            .style('float', 'right')
             .append("svg")
             .attr("width", width)
             .attr("height", height)
             .attr('class', 'frame')
 
-
-        _selection.select('.frame').append("g")
-            .attr("class", "y axis")
-            .attr('transform', 'translate(' + padding.left + ',' + 
-                  padding.top + ")")
-
         svg = svg.append("g")
             .attr("transform", "translate(" + padding.left + "," + padding.top + ")")
+
         svg.append('rect')
             .attr('class', 'background')
             .attr('pointer-events', 'all')
             .attr('fill', 'none')
-            .attr('height', size.y + 'px')
-            .attr('width', size.x + 'px')
+            .attr('height', (height - padding.top - padding.bottom) + 'px')
+            .attr('width', (width - padding.left - padding.right) + 'px')
 
         svg.append("g")
-            .attr("class", "x axis")
-            .attr("transform", "translate(0," + size.y + ")")
+            .attr("class", "cat axis")
+            .attr("transform", function() {
+              return vertical ? "translate(0," + size.count + ")":
+              "translate(0, 0)"; 
+            })
+
+        svg.append("g")
+            .attr("class", "count axis")
+            .attr('transform', function() {
+              return vertical ? 'translate(0, 0)':
+            "translate(0," + size.category + ")";
+            })
 
         var vb = svg.append('svg')
             .attr('id', 'vb')
             .attr('class', 'vb')
             .attr('top', 0)
             .attr('left', 0)
-            .attr('width', size.x + 'px')
-            .attr('height', size.y + 'px')
-            .attr('viewBox', "0 0 " + size.x + " " + size.y)
+            .attr('width', vertical ? size.category:size.count + 'px')
+            .attr('height', vertical ? size.count:size.category + 'px')
+            .attr('viewBox', function() {
+              return vertical ? "0 0 " + size.category + " " + size.count:
+              "0 0 " + size.count + " " + size.category;
+            })
 
-        var tooltip = _selection.select('#' + id).append('text')
+        var tooltip = div.select('#' + id).append('text')
             .attr('class', 'tooltip')
-            .style('position', 'absolute')
             .attr('id', 'stack_tooltip_' + id)
             .style('opacity', 0)
 
       } else {
-        var svg = _selection.select('.frame g'),
-        buttons = _selection.select('#buttons'),
-        sort_button = _selection.select('#sort_button_' + id),
-        tooltip = _selection.select("#stack_tooltip_" + id),
-        vb = _selection.select('#vb')
+        var svg = div.select('.frame g'),
+        buttons = div.select('#buttons'),
+        sort_button = div.select('#sort_button_' + id),
+        tooltip = div.select("#stack_tooltip_" + id),
+        vb = div.select('#vb')
       }
-      _selection.select("#choose_sort_" + id)
+      div.select("#choose_sort_" + id)
           .on('change', function() {
-            _selection.select("#sort_button_" + id)
+            div.select("#sort_button_" + id)
                 .call(make_sort_button, this.value)
       })
 
@@ -303,8 +373,8 @@ d3.stackbar = function module() {
           })
       }
 
+      var original_domain = _.clone(scales.category.domain());
       function sort_layers(variable) {
-        console.log($("#choose_sort_" + id)[0].value)
         if($("#choose_sort_" + id)[0].value == v1){
           // object that has all x variables and their sums
           var agg = _.zipObject(xes, _.map(xes, function(x) {
@@ -314,25 +384,40 @@ d3.stackbar = function module() {
                     })
                   })))
                 }))
-          console.log(agg)
 
           switch(variable)
           {
           case  'ordered':
-            x.domain(_.sortBy(x.domain()))
+            scales.category.domain(_.sortBy(scales.category.domain()))
             break
           case "ascending":
-            x.domain(_.sortBy(x.domain(), function(d) { return agg[d]}))
+            scales.category.domain(_.sortBy(
+                                   scales.category.domain(), function(d) { return agg[d]}))
             break
           case "descending":
-            x.domain(_.sortBy(x.domain(), function(d) { return -agg[d]}))
+            scales.category.domain(_.sortBy(
+                                   scales.category.domain(), function(d) { return -agg[d]}))
             break
           }
         } else {
-          // var order = _.map(layers, function)
+          var layer_to_sort = _.map(_.filter(layers, function(layer){
+            return layer.key == $("#sort_button_" + id)[0].value
+          })[0].values, function(x) {
+            return x.count;
+          });
+          var sorted = _.zip(original_domain, layer_to_sort)
+          sorted = _.sortBy(sorted, function(d) {
+            return -d[1];
+          })
+          sorted = _.map(sorted, function(d) {
+            return d[0]
+          })
+          console.log(sorted)
+          scales.category.domain(sorted);
         }
         draw_chart('resort');
       }
+      console.log(_.clone(layers))
 
       var refitting = false;
       function transition_duration() {return refitting ? 0: 1000};
@@ -347,11 +432,9 @@ d3.stackbar = function module() {
           
         layer
           .transition().duration(transition_duration())
-          .style("fill", function(d) { return colors(d.key); })
 
         layer.enter().append("g")
           .attr("class", "layer")
-          .style("fill", function(d) { return colors(d.key); });
 
         layer.exit()
           .transition().duration(transition_duration())
@@ -361,36 +444,46 @@ d3.stackbar = function module() {
         rect = layer.selectAll("rect")
             .data(function(d) { return d.values; })
 
+        var category = vertical ? 'x': 'y',
+        count = vertical ? 'y': 'x',
+        rect_width = vertical ? "width": "height",
+        rect_height = vertical ? "height" : "width";
+
         switch(stack_group){
           case "stacked":
             rect.transition().duration(transition_duration())
-              .attr("x", function(d) { return x(d.x); })
-              .attr("y", function(d) { return y(d.y0 + d.y); })
-              .attr("height", function(d) { return y(d.y0)-y(d.y0 + d.y); })
-              .attr("width", x.rangeBand())
+              .attr(category, function(d) { return scales.category(d.x); })
+                .attr(count, function(d) { return vertical ? scales.count(d.y + d.y0):size.count - scales.count(d.y0)})
+              .attr(rect_height, function(d) { 
+                return scales.count(d.y0)-scales.count(d.y0 + d.y); })
+              .attr(rect_width, scales.category.rangeBand())
           break;
           case "grouped":
             rect.transition().duration(transition_duration())
                 .delay(function(d, i) { 
                   return transition_duration() ? i * 10: 0; })
-                .attr("x", function(d, i, j) { return x(d.x) + 
-                  x.rangeBand() / layers.length  * j; })
-                .attr("width", x.rangeBand() / layers.length)
+                .attr(category, function(d, i, j) { 
+                  return scales.category(d.x) + 
+                  scales.category.rangeBand() / layers.length  * j; })
+                .attr(rect_width, scales.category.rangeBand() / layers.length)
               .transition().duration(transition_duration())
-                .attr("y", function(d) { return y(d.y); })
-                .attr("height", function(d) { return y(0) - y(d.y); });
+                .attr(count, function(d) { return vertical ? scales.count(d.y0):0})
+                .attr(rect_height, function(d) { 
+                  return scales.count(0) - scales.count(d.y); });
         }
 
         rect.enter().append("rect")
-            .attr("x", function(d) { return x(d.x); })
-            .attr("y", size.y)
-            .attr("width", x.rangeBand())
-            .attr("height", 0)
+            .attr(category, function(d) { return scales.category(d.x); })
+            .attr(count, vertical ? scales.count(0):0)
+            .attr(rect_width, scales.category.rangeBand())
+            .attr(rect_height, 0)
             .style('opacity', 0.6)
+            .style('fill', function(d) { return color_scale(d.v2);})
           .transition().duration(transition_duration())
             .delay(function(d, i) { return i * 10; })
-            .attr("y", function(d) { return y(d.y0 + d.y); })
-            .attr("height", function(d) { return y(d.y0) - y(d.y0 + d.y); });
+            .attr(count, function(d) { return vertical ? scales.count(d.y + d.y0):size.count - scales.count(d.y0)})
+            .attr(rect_height, function(d) { 
+              return scales.count(d.y0) - scales.count(d.y0 + d.y); });
 
         rect.on('mouseover', function(d) {
           d3.select(this).style('opacity', 0.8)
@@ -398,13 +491,13 @@ d3.stackbar = function module() {
               .duration(200)
               .style('opacity', 0.9)
             tooltip.html(function() { return tooltip_content(d)})
-                .style('left', (d3.mouse(this)[0] + 80) + 'px')
-                .style('top', (d3.mouse(this)[1] - 50) + 'px')
+                .style('left', (d3.mouse(this)[0] + 150) + 'px')
+                .style('top', (d3.mouse(this)[1] + -60) + 'px')
              })
           .on('mousemove', function() {
             tooltip
-                .style('left', (d3.mouse(this)[0] + 80) + 'px')
-                .style('top', (d3.mouse(this)[1] - 50) + 'px')
+                .style('left', (d3.mouse(this)[0] + 150) + 'px')
+                .style('top', (d3.mouse(this)[1] + -60) + 'px')
               })
           .on('mouseout', function() {
             d3.select(this).style('opacity', 0.6);
@@ -413,31 +506,33 @@ d3.stackbar = function module() {
 
         rect.exit()
           .transition().duration(transition_duration())
-          .attr("y", size.y)
-          .attr("height", 0);
+          .attr(count, size.count)
+          .attr(rect_height, 0);
 
         svg.select(".background")
           .call(zoom);
 
-        _selection.select('.x.axis')
+        div.select('.cat.axis')
           .transition().duration(transition_duration())
-          .call(xAxis)
+          .call(catAxis)
           .selectAll("text")  
           .style("text-anchor", "end")
           .attr("dx", "-.8em")
           .attr("dy", ".1em")
           .attr("transform", "rotate(-35)");
-        _selection.select('.y.axis')
+        div.select('.count.axis')
           .transition().duration(transition_duration())
-          .call(yAxis)
+          .call(countAxis)
       }
 
       var zoom = d3.behavior.zoom()
                   .on("zoom", zoomed)
       function zoomed() {
-        console.log(stack_group)
         ymax = stack_group == 'stacked' ? StackMax:GroupMax;
-        y.domain(expand_extent([0, ymax*1/d3.event.scale], 0.1, true, false))
+        scales.count.domain(expand_extent([0, ymax*1/d3.event.scale], 0.1, true, false))
+        if(!vertical) {
+          scales.count.domain().reverse();
+        }
         refitting = true;
         draw_chart();
         refitting = false;
@@ -451,16 +546,20 @@ d3.stackbar = function module() {
 
         ymax = stack_group == 'stacked' ? StackMax:GroupMax;
         if(expand){
-          y = d3.scale.linear()
+          scales.count = d3.scale.linear()
               .domain([0, 1])
-              .range([size.y, 0]);
+              .range([size.count, 0]);
         } else {
-          y = d3.scale.linear()
+          scales.count = d3.scale.linear()
               .domain(expand_extent([0, ymax], 0.1, true, false))
-              .range([size.y, 0]);
-            }
-        yAxis.scale(y)
-        xAxis.scale(x)
+              .range([size.count, 0]);
+        }
+        if(!vertical){
+          scales.count.range().reverse()
+        }
+        countAxis.scale(scales.count)
+        catAxis.scale(scales.category)
+
       }
 
     });
@@ -524,6 +623,36 @@ d3.stackbar = function module() {
   stackbar.data = function(_x) {
     if(!arguments.length) return data;
     data = _x;
+    return stackbar;
+  }
+  stackbar.vertical = function(_x) {
+    if(!arguments.length) return vertical;
+    vertical = _x;
+    return stackbar;
+  }
+  stackbar.show_stack = function(_x) {
+    if(!arguments.length) return show_stack;
+    show_stack = _x;
+    return stackbar;
+  }
+  stackbar.show_expand = function(_x) {
+    if(!arguments.length) return show_expand;
+    show_expand = _x;
+    return stackbar;
+  }
+  stackbar.show_sort = function(_x) {
+    if(!arguments.length) return show_sort;
+    show_sort = _x;
+    return stackbar;
+  }
+  stackbar.show_sort_factors = function(_x) {
+    if(!arguments.length) return show_sort_factors;
+    show_sort_factors = _x;
+    return stackbar;
+  }
+  stackbar.show_choose_factors = function(_x) {
+    if(!arguments.length) return show_choose_factors;
+    show_choose_factors = _x;
     return stackbar;
   }
   d3.rebind(stackbar);
